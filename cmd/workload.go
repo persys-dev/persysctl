@@ -6,9 +6,9 @@ import (
 	"io/ioutil"
 	"strings"
 
-	"github.com/persys-dev/persys-cli/internal/client"
-	"github.com/persys-dev/persys-cli/internal/config"
-	"github.com/persys-dev/persys-cli/internal/models"
+	"github.com/persys-dev/persysctl/internal/client"
+	"github.com/persys-dev/persysctl/internal/config"
+	"github.com/persys-dev/persysctl/internal/models"
 	"github.com/spf13/cobra"
 )
 

@@ -1,4 +1,4 @@
-module github.com/persys-dev/persys-cli
+module github.com/persys-dev/persysctl
 
 go 1.24.2
 

@@ -4,8 +4,8 @@ import (
     "fmt"
     "os"
 
-    "github.com/persys-dev/persys-cli/internal/config"
-    "github.com/spf13/cobra"
+    "github.com/persys-dev/persysctl/internal/config"
+    "github.com/spf13/cobra"    
     "github.com/spf13/viper"
 )
 
@@ -13,7 +13,7 @@ var cfgFile string
 var verbose bool
 
 var rootCmd = &cobra.Command{
-    Use:   "persys-cli",
+    Use:   "persysctl",
     Short: "Persys CLI for interacting with Persys",
     Long:  `A command-line client for managing workloads, nodes, and metrics in the Persys system.`,
 }

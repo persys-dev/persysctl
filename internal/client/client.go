@@ -7,9 +7,9 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/persys-dev/persys-cli/internal/auth"
-	"github.com/persys-dev/persys-cli/internal/config"
-	"github.com/persys-dev/persys-cli/internal/models"
+	"github.com/persys-dev/persysctl/internal/auth"
+	"github.com/persys-dev/persysctl/internal/config"
+	"github.com/persys-dev/persysctl/internal/models"
 )
 
 type Client struct {

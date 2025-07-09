@@ -1,7 +1,7 @@
 package main
 
 import (
-    "github.com/persys-dev/persys-cli/cmd"
+    "github.com/persys-dev/persysctl/cmd"
 )
 
 func main() {
