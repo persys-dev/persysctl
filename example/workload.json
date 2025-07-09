@@ -1,0 +1,11 @@
+{
+    "name": "reverse-proxy",
+    "type": "docker-container",
+    "image": "nginx:latest",
+    "command": "",
+    "ports": ["80:80"],
+    "volumes": [],
+    "restartPolicy": "always",
+    "envVars": {"TEST": "value"},
+    "labels": {"env": "prod", "region": "us-west"}
+}

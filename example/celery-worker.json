@@ -1,0 +1,16 @@
+{
+    "name": "celery-worker",
+    "type": "docker-container",
+    "image": "python:3.9",
+    "command": "pip install celery && celery -A tasks worker --loglevel=info",
+    "ports": [],
+    "volumes": ["/app/worker:/app"],
+    "network": "bridge",
+    "restartPolicy": "on-failure",
+    "envVars": {
+        "CELERY_BROKER_URL": "redis://redis:6379/0"
+    },
+    "labels": {
+        "env": "prod"
+    }
+}

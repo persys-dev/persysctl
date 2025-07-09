@@ -1,0 +1,8 @@
+api_endpoint: "https://api.persys.dev"
+ca_cert_path: "/path/to/ca.crt"
+cert_path: "/path/to/client.crt"
+key_path: "/path/to/client.key"
+cfssl_api_url: "https://cfssl.persys.dev"
+common_name: "persys-cli"
+organization: "Persys"
+verbose: false
