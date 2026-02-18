@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -17,6 +18,12 @@ type Config struct {
 	APIEndpoint  string
 	PrivateKey   *rsa.PrivateKey
 	PublicKeyPEM string
+
+	Transport         string
+	GRPCEndpoint      string
+	GRPCInsecure      bool
+	GRPCTarget        string
+	RPCTimeoutSeconds int
 
 	// Certificate settings
 	CACertPath   string
@@ -49,7 +56,28 @@ func GetConfig() Config {
 	}
 	if cfg.APIEndpoint == "" {
 		cfg.APIEndpoint = "http://localhost:8084"
-		log.Printf("WARNING! No api_endpoint Found in your config.yaml Defaulting to: %v", cfg.APIEndpoint)
+		log.Printf("WARNING! No api_endpoint found in your config.yaml; defaulting to: %v", cfg.APIEndpoint)
+	}
+
+	cfg.Transport = strings.ToLower(viper.GetString("transport"))
+	if cfg.Transport == "" {
+		cfg.Transport = "grpc"
+	}
+
+	cfg.GRPCEndpoint = viper.GetString("grpc_endpoint")
+	if cfg.GRPCEndpoint == "" {
+		cfg.GRPCEndpoint = "localhost:8085"
+	}
+
+	cfg.GRPCInsecure = viper.GetBool("grpc_insecure")
+	cfg.GRPCTarget = strings.ToLower(viper.GetString("grpc_target"))
+	if cfg.GRPCTarget == "" {
+		cfg.GRPCTarget = "scheduler"
+	}
+
+	cfg.RPCTimeoutSeconds = viper.GetInt("rpc_timeout_seconds")
+	if cfg.RPCTimeoutSeconds <= 0 {
+		cfg.RPCTimeoutSeconds = 20
 	}
 
 	// Certificate settings
@@ -62,13 +90,13 @@ func GetConfig() Config {
 
 	// Set default paths if not specified
 	if cfg.CACertPath == "" {
-		cfg.CACertPath = filepath.Join(os.Getenv("HOME"), ".persys", "ca.crt")
+		cfg.CACertPath = filepath.Join(os.Getenv("HOME"), ".persys", "ca.pem")
 	}
 	if cfg.CertPath == "" {
-		cfg.CertPath = filepath.Join(os.Getenv("HOME"), ".persys", "client.crt")
+		cfg.CertPath = filepath.Join(os.Getenv("HOME"), ".persys", "persysctl.pem")
 	}
 	if cfg.KeyPath == "" {
-		cfg.KeyPath = filepath.Join(os.Getenv("HOME"), ".persys", "client.key")
+		cfg.KeyPath = filepath.Join(os.Getenv("HOME"), ".persys", "persysctl-key.pem")
 	}
 
 	privKeyStr := viper.GetString("private_key")
