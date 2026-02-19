@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -21,6 +23,7 @@ import (
 	controlv1 "github.com/persys-dev/persysctl/internal/controlv1"
 	"github.com/persys-dev/persysctl/internal/models"
 	agentv1 "github.com/persys/compute-agent/pkg/api/v1"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -32,6 +35,7 @@ type Client struct {
 	grpcConn        *grpc.ClientConn
 	schedulerClient controlv1.AgentControlClient
 	agentClient     agentv1.AgentServiceClient
+	certCancel      context.CancelFunc
 }
 
 type ScheduleResponse struct {
@@ -45,19 +49,21 @@ func NewClient(cfg config.Config) (*Client, error) {
 
 	switch cfg.Transport {
 	case "http":
-		httpClient, err := newHTTPClient(cfg)
+		httpClient, certCancel, err := newHTTPClient(cfg)
 		if err != nil {
 			return nil, err
 		}
 		c.httpClient = httpClient
+		c.certCancel = certCancel
 	case "grpc":
-		conn, schedulerClient, agentClient, err := newGRPCClient(cfg)
+		conn, schedulerClient, agentClient, certCancel, err := newGRPCClient(cfg)
 		if err != nil {
 			return nil, err
 		}
 		c.grpcConn = conn
 		c.schedulerClient = schedulerClient
 		c.agentClient = agentClient
+		c.certCancel = certCancel
 	default:
 		return nil, fmt.Errorf("unsupported transport %q (expected http or grpc)", cfg.Transport)
 	}
@@ -66,67 +72,137 @@ func NewClient(cfg config.Config) (*Client, error) {
 }
 
 func (c *Client) Close() error {
+	if c.certCancel != nil {
+		c.certCancel()
+	}
 	if c.grpcConn != nil {
 		return c.grpcConn.Close()
 	}
 	return nil
 }
 
-func newHTTPClient(cfg config.Config) (*http.Client, error) {
+func newHTTPClient(cfg config.Config) (*http.Client, context.CancelFunc, error) {
 	if cfg.APIEndpoint == "" {
-		return nil, fmt.Errorf("api_endpoint is required for http transport")
+		return nil, nil, fmt.Errorf("api_endpoint is required for http transport")
 	}
 	if strings.HasPrefix(cfg.APIEndpoint, "http://") {
-		return &http.Client{}, nil
+		return &http.Client{}, nil, nil
 	}
 	if !strings.HasPrefix(cfg.APIEndpoint, "https://") {
-		return nil, fmt.Errorf("api_endpoint must start with http:// or https://, got: %s", cfg.APIEndpoint)
+		return nil, nil, fmt.Errorf("api_endpoint must start with http:// or https://, got: %s", cfg.APIEndpoint)
 	}
 
-	certMgr := auth.NewCertificateManager(
-		cfg.CACertPath,
-		cfg.CertPath,
-		cfg.KeyPath,
-		cfg.CFSSLApiURL,
-		cfg.CommonName,
-		cfg.Organization,
-	)
-	if err := certMgr.EnsureCertificate(); err != nil {
-		return nil, fmt.Errorf("failed to ensure certificate: %w", err)
-	}
-	tlsConfig, err := certMgr.GetTLSConfig()
+	bindHost := hostFromURL(cfg.APIEndpoint)
+	certCancel, err := ensureVaultManagedCertificates(cfg, bindHost, true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get TLS config: %w", err)
+		return nil, nil, err
+	}
+	tlsConfig, err := buildMTLSConfig(cfg)
+	if err != nil {
+		if certCancel != nil {
+			certCancel()
+		}
+		return nil, nil, fmt.Errorf("failed to get TLS config: %w", err)
 	}
 
-	return &http.Client{Transport: &http.Transport{TLSClientConfig: tlsConfig}}, nil
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: tlsConfig}}, certCancel, nil
 }
 
-func newGRPCClient(cfg config.Config) (*grpc.ClientConn, controlv1.AgentControlClient, agentv1.AgentServiceClient, error) {
+func newGRPCClient(cfg config.Config) (*grpc.ClientConn, controlv1.AgentControlClient, agentv1.AgentServiceClient, context.CancelFunc, error) {
 	if cfg.GRPCEndpoint == "" {
-		return nil, nil, nil, fmt.Errorf("grpc_endpoint is required for grpc transport")
+		return nil, nil, nil, nil, fmt.Errorf("grpc_endpoint is required for grpc transport")
 	}
 
 	dialCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.RPCTimeoutSeconds)*time.Second)
 	defer cancel()
 
+	var certCancel context.CancelFunc
 	dialOpts := []grpc.DialOption{grpc.WithBlock()}
 	if cfg.GRPCInsecure {
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	} else {
+		bindHost := hostFromDialTarget(cfg.GRPCEndpoint)
+		var err error
+		certCancel, err = ensureVaultManagedCertificates(cfg, bindHost, true)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
 		tlsConfig, err := buildMTLSConfig(cfg)
 		if err != nil {
-			return nil, nil, nil, err
+			if certCancel != nil {
+				certCancel()
+			}
+			return nil, nil, nil, nil, err
 		}
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
 	}
 
 	conn, err := grpc.DialContext(dialCtx, cfg.GRPCEndpoint, dialOpts...)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to connect to gRPC endpoint %s: %w", cfg.GRPCEndpoint, err)
+		if certCancel != nil {
+			certCancel()
+		}
+		return nil, nil, nil, nil, fmt.Errorf("failed to connect to gRPC endpoint %s: %w", cfg.GRPCEndpoint, err)
 	}
 
-	return conn, controlv1.NewAgentControlClient(conn), agentv1.NewAgentServiceClient(conn), nil
+	return conn, controlv1.NewAgentControlClient(conn), agentv1.NewAgentServiceClient(conn), certCancel, nil
+}
+
+func ensureVaultManagedCertificates(cfg config.Config, bindHost string, tlsEnabled bool) (context.CancelFunc, error) {
+	certCfg := auth.Config{
+		TLSEnabled: tlsEnabled,
+
+		TLSCertPath: cfg.CertPath,
+		TLSKeyPath:  cfg.KeyPath,
+		TLSCAPath:   cfg.CACertPath,
+
+		VaultEnabled:       cfg.VaultEnabled,
+		VaultAddr:          cfg.VaultAddr,
+		VaultAuthMethod:    cfg.VaultAuthMethod,
+		VaultToken:         cfg.VaultToken,
+		VaultAppRoleID:     cfg.VaultAppRoleID,
+		VaultAppSecretID:   cfg.VaultAppSecretID,
+		VaultPKIMount:      cfg.VaultPKIMount,
+		VaultPKIRole:       cfg.VaultPKIRole,
+		VaultCertTTL:       cfg.VaultCertTTL,
+		VaultServiceName:   cfg.VaultServiceName,
+		VaultServiceDomain: cfg.VaultServiceDomain,
+		VaultRetryInterval: cfg.VaultRetryInterval,
+
+		BindHost: bindHost,
+	}
+
+	logger := logrus.New()
+	logger.SetOutput(os.Stderr)
+	logger.SetFormatter(&logrus.TextFormatter{})
+	certMgr := auth.NewManager(certCfg, logger)
+
+	certCtx, cancel := context.WithCancel(context.Background())
+	if err := certMgr.Start(certCtx); err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to initialize certificate manager: %w", err)
+	}
+	return cancel, nil
+}
+
+func hostFromURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(u.Hostname())
+}
+
+func hostFromDialTarget(target string) string {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(target)
+	if err == nil {
+		return host
+	}
+	return target
 }
 
 func buildMTLSConfig(cfg config.Config) (*tls.Config, error) {
