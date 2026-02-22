@@ -6,8 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/persys-dev/persysctl/internal/client"
-	"github.com/persys-dev/persysctl/internal/config"
 	agentv1 "github.com/persys/compute-agent/pkg/api/v1"
 	"github.com/spf13/cobra"
 )
@@ -36,7 +34,7 @@ var agentHealthCmd = &cobra.Command{
 	Use:   "health",
 	Short: "Check compute-agent health",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -80,7 +78,7 @@ var agentApplyCmd = &cobra.Command{
 			cobra.CheckErr(fmt.Errorf("unsupported --type %q, use container|compose|vm", agentApplyType))
 		}
 
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -94,7 +92,7 @@ var agentStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Get workload status from standalone compute-agent",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -108,7 +106,7 @@ var agentListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List workloads from standalone compute-agent",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -124,7 +122,7 @@ var agentDeleteCmd = &cobra.Command{
 	Use:   "delete",
 	Short: "Delete workload from standalone compute-agent",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -138,7 +136,7 @@ var agentListActionsCmd = &cobra.Command{
 	Use:   "list-actions",
 	Short: "List compute-agent action/task history",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
