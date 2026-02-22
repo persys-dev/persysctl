@@ -2,186 +2,278 @@
 
 ## Overview
 
-The `persysctl` is a command-line interface (CLI) tool for interacting with the Persys system(s), enabling users to manage workloads, nodes, and cluster metrics. Built with Go, it uses the Cobra framework for command-line parsing and Viper for configuration management. The CLI communicates with the Prow system via HTTP API endpoints, allowing users to schedule workloads, list workloads and nodes, and retrieve system metrics.
-This documentation covers installation, initial configuration, command usage, and troubleshooting for the persysctl.
+`persysctl` is the command-line interface (CLI) for operating Persys services.
+It is built with Go using Cobra (command parsing) and Viper (configuration).
+
+`persysctl` now supports two transport modes:
+
+- `http`: calls `persys-gateway` APIs (gateway then proxies to scheduler/forgery).
+- `grpc`: connects directly to scheduler or compute-agent gRPC endpoints.
+
+The CLI can manage workloads, nodes, cluster visibility, scheduler/agent operations, and forgery flows.
 
 ## Prerequisites
 
-Before using the persysctl, ensure the following:
+Before using `persysctl`, ensure:
 
-* Operating System: Linux, macOS, or Windows (with Go installed).
-* Go: Version 1.16 or higher.
-* Network Access: Access to the Prow system’s API endpoint (e.g., `<http://localhost:8084>`).
-* Configuration: A valid configuration file (default: `~/.persys/config.yaml`) with the API endpoint.
+- Linux/macOS/Windows with Go installed.
+- Network access to your target endpoint:
+  - gateway HTTP endpoint for `--transport http` (example: `https://localhost:8551`)
+  - scheduler/agent gRPC endpoint for `--transport grpc` (example: `localhost:8085`)
+- A valid CLI config file (default: `~/.persys/config.yaml`) or equivalent env vars.
 
 ## Installation
 
-1. Clone the Repository (if available):
+1. Clone repository and enter CLI directory:
 
 ```sh
-git clone https://github.com/persys-dev/persysctl.git
-cd persysctl
+git clone https://github.com/persys-dev/persys-cloud.git
+cd persys-cloud/persysctl
 ```
 
-2. Install persysctl using make:
+2. Build:
 
 ```sh
-make install
+go build -o ./bin/persysctl
 ```
 
-3. Verify Installation:
+3. Verify:
 
 ```sh
-persysctl --help
+./bin/persysctl --help
 ```
-
-Note: The provided code doesn’t implement a --version flag.
 
 ## Initial Configuration
 
-The `persysctl` requires a configuration file to specify the Prow system’s API endpoint and other settings. By default, it looks for `~/.persys/config.yaml`. The configuration is managed using Viper, which supports YAML format and environment variable overrides.
+By default, `persysctl` reads `~/.persys/config.yaml`.
 
-**Step 1: Create the Configuration Directory**
-Create the .persys directory in your home directory:
+### Step 1: Create config directory
 
 ```sh
 mkdir -p ~/.persys
 ```
 
-**Step 2: Create the Configuration File**
-Create a config.yaml file at `~/.persys/config.yaml` with the following structure:
+### Step 2: Create config file
 
 ```yaml
-api_endpoint: <http://localhost:8080>
-verbose: false
+api_endpoint: "https://localhost:8551"
+transport: "http"
+grpc_endpoint: "localhost:8085"
+grpc_target: "scheduler"
+rpc_timeout_seconds: 20
+
+# mTLS certificate paths (used by both HTTP and gRPC TLS clients)
+ca_cert_path: "/home/<user>/.persys/ca.pem"
+cert_path: "/home/<user>/.persys/persysctl.pem"
+key_path: "/home/<user>/.persys/persysctl-key.pem"
+
+# Vault cert manager (enabled by default)
+vault_enabled: true
+vault_addr: "http://localhost:8200"
+vault_auth_method: "approle" # token | approle
+vault_token: ""              # required if auth_method=token
+vault_approle_role_id: ""    # required if auth_method=approle
+vault_approle_secret_id: ""  # required if auth_method=approle
+vault_pki_mount: "pki"
+vault_pki_role: "persysctl"
+vault_cert_ttl: "24h"
+vault_service_name: "persysctl"
+vault_service_domain: "persys.local"
+vault_retry_interval: "1m"
 ```
 
-* api_endpoint: The URL of the Prow system’s API (required).
-* verbose: Enables verbose logging (optional, defaults to false).
+Notes:
 
-Example:
+- `api_endpoint` is used for HTTP mode.
+- `grpc_endpoint` + `grpc_target` are used for gRPC mode.
+- `grpc_target` can be `scheduler` or `agent`.
+- `vault_enabled` defaults to `true`; persysctl expects mTLS-capable endpoints.
+- If Vault is disabled, valid files must already exist at `ca_cert_path`, `cert_path`, and `key_path`.
+
+You can also pass a custom config path:
 
 ```sh
-echo "api_endpoint: <http://192.168.1.100:8084>" > ~/.persys/config.yaml
+./bin/persysctl --config /path/to/config.yaml
 ```
 
-Alternatively, specify a custom config file using the `--config` flag:
+### Step 3: Environment variable overrides
+
+Viper env overrides are supported (for example):
 
 ```sh
-persysctl --config /path/to/custom-config.yaml
+export PERSYS_API_ENDPOINT="https://localhost:8551"
+export PERSYS_TRANSPORT="http"
+export PERSYS_GRPC_ENDPOINT="localhost:8085"
+export PERSYS_VAULT_ADDR="http://localhost:8200"
+export PERSYS_VAULT_AUTH_METHOD="approle"
+export PERSYS_VAULT_APPROLE_ROLE_ID="<role-id>"
+export PERSYS_VAULT_APPROLE_SECRET_ID="<secret-id>"
 ```
 
-**Step 3: Set Environment Variables (Optional)**
-You can override configuration settings using environment variables. Viper maps environment variables by prefixing keys with `PERSYS_`(case-insensitive). For example:
-
-```sh
-export PERSYS_API_ENDPOINT=<http://192.168.1.100:8080>
-export PERSYS_VERBOSE=true
-```
-
-**Step 4: Verify Configuration**
-Run a command to ensure the CLI can read the configuration:
-
-```sh
-persysctl nodes --verbose
-```
-
-If the configuration is invalid or missing, you’ll see an error. Check `~/.persys/config.yaml` and ensure the API endpoint is accessible.
-
-**Step 5: Secure the Configuration**
-Restrict permissions to protect sensitive data (e.g., API credentials, if added):
+### Step 4: Secure local config
 
 ```sh
 chmod 600 ~/.persys/config.yaml
 ```
 
-## Connecting to a prow scheduler server with mTLS
+## Connecting with mTLS
 
-This CLI uses mutual TLS (mTLS) to securely connect to the prow scheduler server. To connect successfully, follow these steps:
+`persysctl` uses mTLS by default unless explicitly running insecure gRPC mode.
 
-### 1. Ensure Server Certificate SANs
-- The prow scheduler server **must** present a TLS certificate with the correct Subject Alternative Names (SANs).
-- The SANs must include the DNS name or IP address you use to connect (e.g., `localhost`, `127.0.0.1`, or your server's IP).
-- If you see errors like:
+### Certificate identity and SAN requirements
+
+- Server certificates must include SANs matching the hostname/IP you dial.
+- Common errors:
   - `x509: cannot validate certificate for <ip> because it doesn't contain any IP SANs`
   - `x509: certificate is not valid for any names, but wanted to match <hostname>`
-  This means the server certificate is missing the required SANs.
 
-### 2. Configure the Client
-- Set the `APIEndpoint` in your config to the exact DNS name or IP that matches a SAN in the server's certificate.
-- Example:
-  ```yaml
-  apiEndpoint: https://localhost:8085
-  # or
-  apiEndpoint: https://192.168.1.13:8085
-  ```
-- Ensure your client has access to the CA certificate that signed the server's certificate.
+### Client-side setup
 
-### 3. Troubleshooting
-- If you cannot change the server certificate and are only testing locally, you can set the client to skip certificate verification (INSECURE):
-  - In the code, set `InsecureSkipVerify: true` in the TLS config (see `internal/auth/cert.go`).
-  - **Warning:** This disables all security checks and should never be used in production.
+- Use endpoint hostnames that match server cert SANs.
+- Ensure CLI CA/cert/key paths are correct.
+- Vault-backed client certificate manager is supported and used by default when enabled in config/env.
 
-### 4. Regenerating Certificates
-- If you control the server, regenerate its certificate to include all required SANs (DNS names and IPs you will use to connect).
-- Restart the server with the new certificate.
+### Insecure testing mode
 
-### 5. Example Error Messages and Solutions
-| Error Message                                                                 | Solution                                      |
-|-------------------------------------------------------------------------------|-----------------------------------------------|
-| `x509: cannot validate certificate for <ip> because it doesn't contain any IP SANs` | Add the IP to the server certificate's SANs   |
-| `x509: certificate is not valid for any names, but wanted to match <hostname>` | Add the hostname to the server certificate's SANs |
+For local testing only, gRPC can run without TLS:
 
-### 6. Security Note
-- Always use valid certificates with correct SANs in production.
-- Only use `InsecureSkipVerify: true` for local development/testing.
+```sh
+./bin/persysctl --transport grpc --grpc-insecure ...
+```
 
----
-
-For more details, see the documentation in `internal/auth/cert.go` and your server's certificate generation process.
+Do not use insecure mode in production.
 
 ## Available Commands
 
-The `persysctl` supports commands to manage `workloads`, `nodes`, and `metrics`.
+Top-level command groups include:
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `persysctl schedule` | Schedule a workload on a node | `persysctl schedule --workload path/to/workload.json` |
-| `persysctl workloads list` | List all workloads | `persysctl workloads list` |
-| `persysctl nodes list` | List all nodes | `persysctl nodes list` |
-| `persysctl metrics` | Retrieve cluster metrics | `persysctl metrics` |
-| `persysctl --help` | Display help | `persysctl --help` |
+- `workload`
+- `node`
+- `scheduler`
+- `agent`
+- `cluster`
+- `metrics`
+- `forgery`
 
-## API Routes
+Use:
 
-The `persysctl` interacts with the following Prow system API endpoints:
+```sh
+./bin/persysctl <group> --help
+./bin/persysctl <group> <command> --help
+```
 
-- **POST /workloads/schedule**: Schedules a workload, returning a `ScheduleResponse` (workload ID, node ID, status).
-- **GET /workloads**: Retrieves a list of workloads.
-- **GET /nodes**: Retrieves a list of nodes.
-- **GET /cluster/metrics**: Retrieves cluster metrics as a key-value map.
+## Current Behavior by Transport
 
-Ensure the Prow system is running and these endpoints are accessible at the configured `api_endpoint`.
+### HTTP transport (`--transport http`)
+
+- Talks to `persys-gateway`.
+- Gateway handles cluster routing and proxies scheduler/forgery APIs.
+- Recommended for platform-level operations.
+
+Common examples:
+
+```sh
+# Cluster routing state from gateway
+./bin/persysctl --transport http cluster list
+
+# Workloads and nodes via gateway->scheduler proxy
+./bin/persysctl --transport http workload list
+./bin/persysctl --transport http node list
+```
+
+### gRPC transport (`--transport grpc`)
+
+- Direct gRPC connection to endpoint in `--grpc-endpoint`.
+- Target service selected by `--grpc-target` (`scheduler` or `agent`).
+
+Examples:
+
+```sh
+# Direct scheduler call
+./bin/persysctl --transport grpc --grpc-target scheduler workload list
+
+# Direct agent call (if endpoint is compute-agent)
+./bin/persysctl --transport grpc --grpc-target agent workload list
+```
+
+## Workload Scheduling Notes
+
+`workload schedule` supports two paths:
+
+1. Legacy flag-based scheduling.
+2. `--spec-file` scheduling (recommended for realistic specs).
+
+With `--spec-file`:
+
+- `--id` and `--type` are required.
+- Accepted types: `docker-container`, `docker-compose`, `git-compose`, `container`, `compose`, `vm`.
+- `--revision` and `--desired-state` control apply semantics.
+
+Behavior differs by target:
+
+- `grpc_target=scheduler`: sends scheduler apply request with translated spec.
+- `grpc_target=agent` requires `--transport grpc` and sends agent apply request.
+
+## Forgery Commands (via Gateway HTTP)
+
+Forgery commands are available in HTTP mode and go through gateway to forgery gRPC:
+
+- `forgery upsert-project --spec-file ...`
+- `forgery trigger-build --spec-file ...`
+- `forgery test-webhook --spec-file ...`
+
+Examples:
+
+```sh
+./bin/persysctl --transport http forgery upsert-project --spec-file ./examples/forgery/project-upsert-spec.json
+./bin/persysctl --transport http forgery trigger-build --spec-file ./examples/forgery/build-trigger-spec.json
+./bin/persysctl --transport http forgery test-webhook --spec-file ./examples/forgery/test-webhook-spec.json
+```
+
+## Gateway API Mapping (HTTP mode)
+
+Representative routes used by CLI:
+
+- `GET /clusters`
+- `POST /workloads/schedule`
+- `GET /workloads`
+- `GET /nodes`
+- `GET /cluster/metrics`
+- `POST /forgery/projects/upsert`
+- `POST /forgery/builds/trigger`
+- `POST /forgery/webhooks/test`
 
 ## Troubleshooting
-- **Configuration Errors**:
-  - **Error**: `failed to read config: ...`
-  - **Solution**: Verify `~/.persys/config.yaml` exists and contains `api_endpoint`. Use `--config` to specify an alternative file.
-- **Connection Errors**:
-  - **Error**: `failed to send request: ...`
-  - **Solution**: Check the API endpoint URL and ensure the Prow system is running (`curl http://192.168.1.100:8080`).
-- **Invalid Responses**:
-  - **Error**: `failed to decode response: ...`
-  - **Solution**: Enable verbose logging (`--verbose`) to inspect API responses. Verify the Prow system’s API version compatibility.
+
+### Configuration errors
+
+- Error: `failed to read config: ...`
+- Fix: verify file path/format or pass `--config` explicitly.
+
+### Connection errors
+
+- Error: `failed to send request: ...` (HTTP)
+- Fix: confirm `api_endpoint` and gateway availability.
+
+- Error: `failed to connect to gRPC endpoint ...` (gRPC)
+- Fix: verify endpoint, transport settings, TLS material, and SAN match.
+
+### API errors
+
+- Error: `API returned status ...`
+- Fix: inspect returned JSON for upstream gateway/scheduler/forgery error details.
 
 ## Best Practices
-- **Secure Configuration**: Protect `config.yaml` with `chmod 600` and avoid storing sensitive data (e.g., API keys) unless necessary.
-- **Verbose Logging**: Use `--verbose` for debugging but disable it in production to reduce output.
-- **Environment Variables**: Use `PERSYS_API_ENDPOINT` for temporary overrides instead of modifying `config.yaml`.
-- **Version Control**: Back up `config.yaml` and track changes to avoid accidental overwrites.
+
+- Use HTTP mode for normal operator workflows (cluster-aware routing).
+- Use direct gRPC mode for low-level scheduler/agent debugging.
+- Keep cert/key/CA files protected and rotate regularly.
+- Use `--help` at command group level to track available flags and behavior.
 
 ## Additional Resources
-- **Persys Cloud Documentation**: [Persys-cloud](https://github.com/persys-dev/persys-cloud) Refer to the Prow system’s API documentation for endpoint details.
-- **Cobra Documentation**: [spf13/cobra](https://github.com/spf13/cobra) for command implementation.
-- **Viper Documentation**: [spf13/viper](https://github.com/spf13/viper) for configuration management.
-- **Support**: Contact the Persys development team for assistance.
+
+- Root repository docs: `../README.md`
+- Gateway docs: `../persys-gateway/README.md`
+- Scheduler docs: `../persys-scheduler/README.md`
+- Forgery docs: `../persys-forgery/README.md`
+- Compute-agent docs: `../compute-agent/README.md`
