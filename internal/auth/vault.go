@@ -119,7 +119,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.logger.WithFields(logrus.Fields{
 			"not_before": existingMeta.notBefore.UTC().Format(time.RFC3339),
 			"not_after":  existingMeta.notAfter.UTC().Format(time.RFC3339),
-		}).Info("Using existing valid certificate from disk")
+		}).Debug("Using existing valid certificate from disk")
 		go m.rotationLoop(ctx)
 		return nil
 	}
@@ -155,7 +155,7 @@ func (m *Manager) rotationLoop(ctx context.Context) {
 			wait = minRotationWait
 		}
 
-		m.logger.WithField("next_rotation", renewAt.UTC().Format(time.RFC3339)).Info("Next certificate rotation scheduled")
+		m.logger.WithField("next_rotation", renewAt.UTC().Format(time.RFC3339)).Debug("Next certificate rotation scheduled")
 
 		select {
 		case <-ctx.Done():
