@@ -1,0 +1,26 @@
+{
+  "id": "demo-celery-worker",
+  "name": "celery-worker",
+  "type": "container",
+  "image": "python:3.11-alpine",
+  "command": "sh -c 'python -m pip install --no-cache-dir celery redis && celery -A tasks worker --loglevel=info'",
+  "ports": [],
+  "volumes": [
+    "/tmp/persys-celery:/app"
+  ],
+  "network": "bridge",
+  "restartPolicy": "on-failure",
+  "envVars": {
+    "PYTHONUNBUFFERED": "1",
+    "CELERY_BROKER_URL": "redis://redis:6379/0",
+    "CELERY_RESULT_BACKEND": "redis://redis:6379/1"
+  },
+  "resources": {
+    "cpu": 750,
+    "memory": 512
+  },
+  "labels": {
+    "env": "dev",
+    "role": "worker"
+  }
+}
