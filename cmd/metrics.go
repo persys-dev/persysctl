@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/persys-dev/persysctl/internal/client"
-	"github.com/persys-dev/persysctl/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -14,7 +12,7 @@ var metricsCmd = &cobra.Command{
 	Short: "View Prow metrics",
 	Long:  `Retrieves node and workload metrics from Prow.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 		metrics, err := c.GetMetrics()

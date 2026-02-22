@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/persys-dev/persysctl/internal/client"
-	"github.com/persys-dev/persysctl/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -23,7 +21,7 @@ var nodeListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List nodes",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -39,7 +37,7 @@ var nodeGetCmd = &cobra.Command{
 	Use:   "get",
 	Short: "Get node details (scheduler gRPC)",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 

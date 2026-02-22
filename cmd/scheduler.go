@@ -7,8 +7,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/persys-dev/persysctl/internal/client"
-	"github.com/persys-dev/persysctl/internal/config"
 	controlv1 "github.com/persys-dev/persysctl/internal/controlv1"
 	agentv1 "github.com/persys/compute-agent/pkg/api/v1"
 	"github.com/spf13/cobra"
@@ -35,7 +33,7 @@ var schedulerSummaryCmd = &cobra.Command{
 	Use:   "summary",
 	Short: "Get scheduler cluster summary",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -59,7 +57,7 @@ var schedulerApplyCmd = &cobra.Command{
 			Spec:         spec,
 		}
 
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -91,7 +89,7 @@ var schedulerDeleteWorkloadCmd = &cobra.Command{
 	Use:   "delete-workload",
 	Short: "Delete workload via scheduler RPC",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -105,7 +103,7 @@ var schedulerRetryWorkloadCmd = &cobra.Command{
 	Use:   "retry-workload",
 	Short: "Retry workload via scheduler RPC",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -119,7 +117,7 @@ var schedulerListNodesCmd = &cobra.Command{
 	Use:   "list-nodes",
 	Short: "List nodes via scheduler RPC",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -133,7 +131,7 @@ var schedulerGetNodeCmd = &cobra.Command{
 	Use:   "get-node",
 	Short: "Get node via scheduler RPC",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -147,7 +145,7 @@ var schedulerListWorkloadsCmd = &cobra.Command{
 	Use:   "list-workloads",
 	Short: "List workloads via scheduler RPC",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -161,7 +159,7 @@ var schedulerGetWorkloadCmd = &cobra.Command{
 	Use:   "get-workload",
 	Short: "Get workload via scheduler RPC",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -345,6 +343,21 @@ func parseAgentVMSpecForScheduler(body []byte) (*controlv1.WorkloadSpec, error) 
 	if err := json.Unmarshal(body, vm); err != nil {
 		return nil, fmt.Errorf("parse vm spec: %w", err)
 	}
+	metadata := map[string]string{}
+	for k, v := range vm.GetMetadata() {
+		metadata[k] = v
+	}
+	// Preserve full VM disk/network details for scheduler paths that still use reduced control VM disk schema.
+	metadata["persys.vm_spec_b64"] = base64.StdEncoding.EncodeToString(body)
+
+	cloudInit := &controlv1.CloudInitConfig{}
+	if vm.GetCloudInitConfig() != nil {
+		cloudInit = &controlv1.CloudInitConfig{
+			UserData:      vm.GetCloudInitConfig().GetUserData(),
+			MetaData:      vm.GetCloudInitConfig().GetMetaData(),
+			NetworkConfig: vm.GetCloudInitConfig().GetNetworkConfig(),
+		}
+	}
 
 	return &controlv1.WorkloadSpec{
 		Type: "vm",
@@ -352,17 +365,14 @@ func parseAgentVMSpecForScheduler(body []byte) (*controlv1.WorkloadSpec, error) 
 			CpuMillicores: int64(vm.GetVcpus()) * 1000,
 			MemoryMb:      vm.GetMemoryMb(),
 		},
-		Metadata: vm.GetMetadata(),
+		Metadata: metadata,
 		Workload: &controlv1.WorkloadSpec_Vm{Vm: &controlv1.VMSpec{
 			Vcpus:    vm.GetVcpus(),
 			MemoryMb: vm.GetMemoryMb(),
+			OsImage:  vm.GetName(),
 			Disks:    toControlDisks(vm.GetDisks()),
 			Networks: toControlNetworks(vm.GetNetworks()),
-			CloudInit: &controlv1.CloudInitConfig{
-				UserData:      vm.GetCloudInitConfig().GetUserData(),
-				MetaData:      vm.GetCloudInitConfig().GetMetaData(),
-				NetworkConfig: vm.GetCloudInitConfig().GetNetworkConfig(),
-			},
+			CloudInit: cloudInit,
 		}},
 	}, nil
 }
