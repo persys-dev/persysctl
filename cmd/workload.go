@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
-	"github.com/persys-dev/persysctl/internal/client"
 	"github.com/persys-dev/persysctl/internal/config"
 	controlv1 "github.com/persys-dev/persysctl/internal/controlv1"
 	"github.com/persys-dev/persysctl/internal/models"
@@ -20,6 +20,9 @@ var (
 	workloadGetID      string
 	workloadDeleteID   string
 	workloadRetryID    string
+	workloadStartID    string
+	workloadStopID     string
+	workloadRestartID  string
 	workloadSpecFile   string
 	workloadRevision   string
 	workloadDesired    string
@@ -64,32 +67,34 @@ var workloadScheduleCmd = &cobra.Command{
 		if workload.Type == "" {
 			cobra.CheckErr(fmt.Errorf("type is required"))
 		}
-		if !strings.Contains("docker-container,docker-compose,git-compose,container,compose", workload.Type) {
-			cobra.CheckErr(fmt.Errorf("type must be docker-container, docker-compose, git-compose, container, or compose"))
-		}
-		if workload.Type == "docker-container" && workload.Image == "" {
-			cobra.CheckErr(fmt.Errorf("image is required for docker-container"))
+		if !strings.Contains("docker-container,docker-compose,git-compose,container,compose,vm", workload.Type) {
+			cobra.CheckErr(fmt.Errorf("type must be docker-container, docker-compose, git-compose, container, compose, or vm"))
 		}
 
-		// Spec-file mode allows schedule syntax for direct gRPC scheduler/agent apply.
+		// Spec-file mode allows schedule syntax for scheduler/agent apply.
 		if workloadSpecFile != "" {
-			if cfg.Transport != "grpc" {
-				cobra.CheckErr(fmt.Errorf("--spec-file is supported only with --transport grpc"))
-			}
 			if workload.ID == "" {
 				cobra.CheckErr(fmt.Errorf("--id is required when using --spec-file"))
 			}
 			if workload.Type == "" {
 				cobra.CheckErr(fmt.Errorf("--type is required when using --spec-file"))
 			}
+		} else {
+			if workload.Type == "docker-container" && workload.Image == "" {
+				cobra.CheckErr(fmt.Errorf("image is required for docker-container"))
+			}
 		}
 
-		c, err := client.NewClient(cfg)
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
 		if workloadSpecFile != "" {
-			switch cfg.GRPCTarget {
+			target := strings.TrimSpace(cfg.GRPCTarget)
+			if target == "" {
+				target = "scheduler"
+			}
+			switch target {
 			case "scheduler":
 				spec, err := buildSchedulerWorkloadSpec(workload.Type, workloadSpecFile)
 				cobra.CheckErr(err)
@@ -100,14 +105,51 @@ var workloadScheduleCmd = &cobra.Command{
 					Spec:         spec,
 				})
 				cobra.CheckErr(err)
-				printProto(resp)
+				out := map[string]any{
+					"target":      "scheduler",
+					"transport":   cfg.Transport,
+					"workload_id": workload.ID,
+					"accepted":    resp.GetSuccess(),
+				}
+				if !resp.GetSuccess() {
+					out["error_message"] = resp.GetErrorMessage()
+					out["failure_reason"] = resp.GetFailureReason().String()
+				}
+				if cfg.Transport == "http" {
+					if clusters, err := c.GatewayClusters(); err == nil && strings.TrimSpace(clusters.DefaultClusterID) != "" {
+						out["cluster_id"] = strings.TrimSpace(clusters.DefaultClusterID)
+					}
+				}
+				if getResp, err := c.GetWorkload(workload.ID); err == nil && getResp.GetWorkload() != nil {
+					w := getResp.GetWorkload()
+					out["status"] = w.GetStatus()
+					out["assigned_node_id"] = w.GetAssignedNodeId()
+					out["revision_id"] = w.GetRevisionId()
+				}
+				data, err := json.MarshalIndent(out, "", "  ")
+				cobra.CheckErr(err)
+				fmt.Println(string(data))
 				return
 			case "agent":
+				if cfg.Transport != "grpc" {
+					cobra.CheckErr(fmt.Errorf("--spec-file with --grpc-target agent requires --transport grpc"))
+				}
 				req, err := buildAgentApplyRequestFromSpec(workload.ID, workload.Type, workloadSpecFile, workloadRevision, workloadDesired)
 				cobra.CheckErr(err)
 				resp, err := c.ApplyAgentWorkload(req)
 				cobra.CheckErr(err)
-				printProto(resp)
+				out := map[string]any{
+					"target":      "agent",
+					"transport":   cfg.Transport,
+					"workload_id": workload.ID,
+					"applied":     resp.GetApplied(),
+				}
+				if !resp.GetApplied() {
+					out["message"] = resp.GetMessage()
+				}
+				data, err := json.MarshalIndent(out, "", "  ")
+				cobra.CheckErr(err)
+				fmt.Println(string(data))
 				return
 			default:
 				cobra.CheckErr(fmt.Errorf("unsupported grpc target %q (expected scheduler or agent)", cfg.GRPCTarget))
@@ -124,13 +166,13 @@ var workloadListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List workloads",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
 		workloads, err := c.ListWorkloads(workloadListNodeID, workloadListStatus)
 		cobra.CheckErr(err)
-		data, err := json.MarshalIndent(workloads, "", "  ")
+		data, err := json.MarshalIndent(formatWorkloadsForOutput(workloads), "", "  ")
 		cobra.CheckErr(err)
 		fmt.Println(string(data))
 	},
@@ -140,7 +182,7 @@ var workloadGetCmd = &cobra.Command{
 	Use:   "get",
 	Short: "Get workload details (scheduler gRPC)",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -154,7 +196,7 @@ var workloadDeleteCmd = &cobra.Command{
 	Use:   "delete",
 	Short: "Delete workload (scheduler gRPC)",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
@@ -168,13 +210,71 @@ var workloadRetryCmd = &cobra.Command{
 	Use:   "retry",
 	Short: "Retry workload (scheduler gRPC)",
 	Run: func(cmd *cobra.Command, args []string) {
-		c, err := client.NewClient(config.GetConfig())
+		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
 		defer c.Close()
 
 		resp, err := c.RetryWorkload(workloadRetryID)
 		cobra.CheckErr(err)
 		printProto(resp)
+	},
+}
+
+var workloadStartCmd = &cobra.Command{
+	Use:   "start",
+	Short: "Set desired state to running",
+	Run: func(cmd *cobra.Command, args []string) {
+		c, _, err := newClientWithTrace()
+		cobra.CheckErr(err)
+		defer c.Close()
+		resp, err := c.ApplySchedulerWorkload(&controlv1.ApplyWorkloadRequest{
+			WorkloadId:   workloadStartID,
+			DesiredState: "Running",
+		})
+		cobra.CheckErr(err)
+		printProto(resp)
+	},
+}
+
+var workloadStopCmd = &cobra.Command{
+	Use:   "stop",
+	Short: "Set desired state to stopped",
+	Run: func(cmd *cobra.Command, args []string) {
+		c, _, err := newClientWithTrace()
+		cobra.CheckErr(err)
+		defer c.Close()
+		resp, err := c.ApplySchedulerWorkload(&controlv1.ApplyWorkloadRequest{
+			WorkloadId:   workloadStopID,
+			DesiredState: "Stopped",
+		})
+		cobra.CheckErr(err)
+		printProto(resp)
+	},
+}
+
+var workloadRestartCmd = &cobra.Command{
+	Use:   "restart",
+	Short: "Stop then start workload",
+	Run: func(cmd *cobra.Command, args []string) {
+		c, _, err := newClientWithTrace()
+		cobra.CheckErr(err)
+		defer c.Close()
+		stopResp, err := c.ApplySchedulerWorkload(&controlv1.ApplyWorkloadRequest{
+			WorkloadId:   workloadRestartID,
+			DesiredState: "Stopped",
+		})
+		cobra.CheckErr(err)
+		if !stopResp.GetSuccess() {
+			printProto(stopResp)
+			return
+		}
+		time.Sleep(1 * time.Second)
+		startResp, err := c.ApplySchedulerWorkload(&controlv1.ApplyWorkloadRequest{
+			WorkloadId:   workloadRestartID,
+			DesiredState: "Running",
+		})
+		cobra.CheckErr(err)
+		printProto(startResp)
 	},
 }
 
@@ -185,6 +285,9 @@ func init() {
 	workloadCmd.AddCommand(workloadGetCmd)
 	workloadCmd.AddCommand(workloadDeleteCmd)
 	workloadCmd.AddCommand(workloadRetryCmd)
+	workloadCmd.AddCommand(workloadStartCmd)
+	workloadCmd.AddCommand(workloadStopCmd)
+	workloadCmd.AddCommand(workloadRestartCmd)
 
 	workloadScheduleCmd.Flags().String("id", "", "Workload ID")
 	workloadScheduleCmd.Flags().String("name", "", "Workload name")
@@ -211,9 +314,15 @@ func init() {
 	workloadGetCmd.Flags().StringVar(&workloadGetID, "id", "", "Workload ID")
 	workloadDeleteCmd.Flags().StringVar(&workloadDeleteID, "id", "", "Workload ID")
 	workloadRetryCmd.Flags().StringVar(&workloadRetryID, "id", "", "Workload ID")
+	workloadStartCmd.Flags().StringVar(&workloadStartID, "id", "", "Workload ID")
+	workloadStopCmd.Flags().StringVar(&workloadStopID, "id", "", "Workload ID")
+	workloadRestartCmd.Flags().StringVar(&workloadRestartID, "id", "", "Workload ID")
 	cobra.CheckErr(workloadGetCmd.MarkFlagRequired("id"))
 	cobra.CheckErr(workloadDeleteCmd.MarkFlagRequired("id"))
 	cobra.CheckErr(workloadRetryCmd.MarkFlagRequired("id"))
+	cobra.CheckErr(workloadStartCmd.MarkFlagRequired("id"))
+	cobra.CheckErr(workloadStopCmd.MarkFlagRequired("id"))
+	cobra.CheckErr(workloadRestartCmd.MarkFlagRequired("id"))
 }
 
 func buildAgentApplyRequestFromSpec(id, typ, specFile, revision, desired string) (*agentv1.ApplyWorkloadRequest, error) {
@@ -268,4 +377,54 @@ func parseEnvVars(envStr string) map[string]string {
 		}
 	}
 	return envVars
+}
+
+func formatWorkloadsForOutput(workloads []models.Workload) []map[string]any {
+	out := make([]map[string]any, 0, len(workloads))
+	for _, w := range workloads {
+		item := map[string]any{
+			"id":     w.ID,
+			"type":   w.Type,
+			"status": w.Status,
+		}
+		if strings.TrimSpace(w.Name) != "" {
+			item["name"] = w.Name
+		}
+		if strings.TrimSpace(w.NodeID) != "" {
+			item["nodeId"] = w.NodeID
+		}
+		if strings.TrimSpace(w.DesiredState) != "" {
+			item["desiredState"] = w.DesiredState
+		}
+		if strings.TrimSpace(w.RevisionID) != "" {
+			item["revisionId"] = w.RevisionID
+		}
+		if w.RetryAttempts > 0 || w.RetryMax > 0 || !w.RetryNextAt.IsZero() {
+			retry := map[string]any{
+				"attempts": w.RetryAttempts,
+				"max":      w.RetryMax,
+			}
+			if !w.RetryNextAt.IsZero() {
+				retry["nextAt"] = w.RetryNextAt.UTC().Format(time.RFC3339)
+			}
+			item["retry"] = retry
+		}
+		if strings.TrimSpace(w.FailureReason) != "" {
+			item["failureReason"] = w.FailureReason
+		}
+		if strings.TrimSpace(w.Message) != "" {
+			item["message"] = w.Message
+		}
+		if !w.CreatedAt.IsZero() {
+			item["createdAt"] = w.CreatedAt.UTC().Format(time.RFC3339)
+		}
+		if !w.LastUpdated.IsZero() {
+			item["lastUpdated"] = w.LastUpdated.UTC().Format(time.RFC3339)
+		}
+		if len(w.Metadata) > 0 {
+			item["metadata"] = w.Metadata
+		}
+		out = append(out, item)
+	}
+	return out
 }
