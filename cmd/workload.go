@@ -268,7 +268,7 @@ var workloadRestartCmd = &cobra.Command{
 			printProto(stopResp)
 			return
 		}
-		time.Sleep(1 * time.Second)
+		cobra.CheckErr(waitForSchedulerWorkloadStatus(c, workloadRestartID, "Stopped", 90*time.Second))
 		startResp, err := c.ApplySchedulerWorkload(&controlv1.ApplyWorkloadRequest{
 			WorkloadId:   workloadRestartID,
 			DesiredState: "Running",
@@ -323,6 +323,33 @@ func init() {
 	cobra.CheckErr(workloadStartCmd.MarkFlagRequired("id"))
 	cobra.CheckErr(workloadStopCmd.MarkFlagRequired("id"))
 	cobra.CheckErr(workloadRestartCmd.MarkFlagRequired("id"))
+}
+
+func waitForSchedulerWorkloadStatus(
+	c interface {
+		GetWorkload(workloadID string) (*controlv1.GetWorkloadResponse, error)
+	},
+	workloadID string,
+	expectedStatus string,
+	timeout time.Duration,
+) error {
+	deadline := time.Now().Add(timeout)
+	lastStatus := "unknown"
+	for time.Now().Before(deadline) {
+		resp, err := c.GetWorkload(workloadID)
+		if err != nil {
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		if w := resp.GetWorkload(); w != nil {
+			lastStatus = strings.TrimSpace(w.GetStatus())
+			if strings.EqualFold(lastStatus, expectedStatus) {
+				return nil
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("timed out waiting for workload %s status=%s (last status=%s)", workloadID, expectedStatus, lastStatus)
 }
 
 func buildAgentApplyRequestFromSpec(id, typ, specFile, revision, desired string) (*agentv1.ApplyWorkloadRequest, error) {
