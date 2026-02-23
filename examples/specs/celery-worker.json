@@ -1,26 +1,26 @@
 {
-  "id": "demo-celery-worker",
-  "name": "celery-worker",
-  "type": "container",
   "image": "python:3.11-alpine",
-  "command": "sh -c 'python -m pip install --no-cache-dir celery redis && celery -A tasks worker --loglevel=info'",
-  "ports": [],
-  "volumes": [
-    "/tmp/persys-celery:/app"
+  "command": [
+    "sh", "-c", "python -m pip install --no-cache-dir celery redis && celery -A tasks worker --loglevel=info"
   ],
-  "network": "bridge",
-  "restartPolicy": "on-failure",
-  "envVars": {
+  "env": {
     "PYTHONUNBUFFERED": "1",
-    "CELERY_BROKER_URL": "redis://redis:6379/0",
-    "CELERY_RESULT_BACKEND": "redis://redis:6379/1"
+    "CELERY_BROKER_URL": "redis://redis:6379/2",
+    "CELERY_RESULT_BACKEND": "redis://redis:6379/3"
   },
   "resources": {
-    "cpu": 750,
-    "memory": 512
+    "cpu_shares": 512,
+    "memory_bytes": 536870912,
+    "memory_swap_bytes": 1073741824
+  },
+  "restart_policy": {
+    "policy": "unless-stopped",
+    "max_retry_count": 0
   },
   "labels": {
-    "env": "dev",
+    "app": "demo-celery-worker",
+    "environment": "staging",
     "role": "worker"
   }
 }
+

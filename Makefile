@@ -11,6 +11,10 @@ GOFLAGS = -v
 .PHONY: all
 all: build
 
+.PHONY: proto
+proto:
+	@echo "No protobuf definitions in persysctl"
+
 # Ensure bin directory exists
 $(BINARY_DIR):
 	mkdir -p $(BINARY_DIR)
