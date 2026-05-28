@@ -396,6 +396,8 @@ func (c *Client) ListWorkloads(nodeID, status string) ([]models.Workload, error)
 					RetryMax:      w.GetRetryMaxAttempts(),
 					RetryNextAt:   retryNext,
 					FailureReason: w.GetFailureReason(),
+					Reason:        toModelReason(w.GetReason()),
+					Usage:         toModelUsage(w.GetUsage()),
 					LastUpdated:   lastUpdated,
 				})
 			}
@@ -768,6 +770,8 @@ func (c *Client) listWorkloadsHTTP(nodeID, status string) ([]models.Workload, er
 			RetryMax:      w.GetRetryMaxAttempts(),
 			RetryNextAt:   retryNext,
 			FailureReason: w.GetFailureReason(),
+			Reason:        toModelReason(w.GetReason()),
+			Usage:         toModelUsage(w.GetUsage()),
 			LastUpdated:   lastUpdated,
 		})
 	}
@@ -1012,6 +1016,53 @@ func workloadID(w models.Workload) string {
 		return w.Name
 	}
 	return fmt.Sprintf("workload-%d", time.Now().Unix())
+}
+
+func toModelReason(in *controlv1.ReasonDetail) *models.WorkloadReason {
+	if in == nil {
+		return nil
+	}
+	out := &models.WorkloadReason{
+		Code:      strings.TrimSpace(in.GetCode()),
+		Message:   strings.TrimSpace(in.GetMessage()),
+		Retryable: in.GetRetryable(),
+	}
+	if ts := in.GetLastTransition(); ts != nil {
+		out.LastTransition = ts.AsTime().UTC()
+	}
+	if ts := in.GetNextRetryAt(); ts != nil {
+		out.NextRetryAt = ts.AsTime().UTC()
+	}
+	if out.Code == "" && out.Message == "" && out.LastTransition.IsZero() && out.NextRetryAt.IsZero() && !out.Retryable {
+		return nil
+	}
+	return out
+}
+
+func toModelUsage(in *controlv1.WorkloadUsageSnapshot) *models.WorkloadUsage {
+	if in == nil {
+		return nil
+	}
+	out := &models.WorkloadUsage{
+		WorkloadID:     strings.TrimSpace(in.GetWorkloadId()),
+		Type:           strings.TrimSpace(in.GetType()),
+		CPUPercent:     in.GetCpuPercent(),
+		MemoryBytes:    in.GetMemoryBytes(),
+		DiskReadBytes:  in.GetDiskReadBytes(),
+		DiskWriteBytes: in.GetDiskWriteBytes(),
+		NetRXBytes:     in.GetNetRxBytes(),
+		NetTXBytes:     in.GetNetTxBytes(),
+		Source:         strings.TrimSpace(in.GetSource()),
+	}
+	if ts := in.GetCollectedAt(); ts != nil {
+		out.CollectedAt = ts.AsTime().UTC()
+	}
+	if out.WorkloadID == "" && out.Type == "" && out.CPUPercent == 0 && out.MemoryBytes == 0 &&
+		out.DiskReadBytes == 0 && out.DiskWriteBytes == 0 && out.NetRXBytes == 0 &&
+		out.NetTXBytes == 0 && out.CollectedAt.IsZero() && out.Source == "" {
+		return nil
+	}
+	return out
 }
 
 func toSchedulerApplyRequest(w models.Workload) (*controlv1.ApplyWorkloadRequest, string, error) {

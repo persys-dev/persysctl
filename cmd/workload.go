@@ -439,6 +439,50 @@ func formatWorkloadsForOutput(workloads []models.Workload) []map[string]any {
 		if strings.TrimSpace(w.FailureReason) != "" {
 			item["failureReason"] = w.FailureReason
 		}
+		if w.Reason != nil {
+			reason := map[string]any{}
+			if strings.TrimSpace(w.Reason.Code) != "" {
+				reason["code"] = w.Reason.Code
+			}
+			if strings.TrimSpace(w.Reason.Message) != "" {
+				reason["message"] = w.Reason.Message
+			}
+			if !w.Reason.LastTransition.IsZero() {
+				reason["lastTransition"] = w.Reason.LastTransition.UTC().Format(time.RFC3339)
+			}
+			if !w.Reason.NextRetryAt.IsZero() {
+				reason["nextRetryAt"] = w.Reason.NextRetryAt.UTC().Format(time.RFC3339)
+			}
+			if w.Reason.Retryable {
+				reason["retryable"] = true
+			}
+			if len(reason) > 0 {
+				item["reason"] = reason
+			}
+		}
+		if w.Usage != nil {
+			usage := map[string]any{
+				"cpuPercent":     w.Usage.CPUPercent,
+				"memoryBytes":    w.Usage.MemoryBytes,
+				"diskReadBytes":  w.Usage.DiskReadBytes,
+				"diskWriteBytes": w.Usage.DiskWriteBytes,
+				"netRxBytes":     w.Usage.NetRXBytes,
+				"netTxBytes":     w.Usage.NetTXBytes,
+			}
+			if strings.TrimSpace(w.Usage.WorkloadID) != "" {
+				usage["workloadId"] = w.Usage.WorkloadID
+			}
+			if strings.TrimSpace(w.Usage.Type) != "" {
+				usage["type"] = w.Usage.Type
+			}
+			if strings.TrimSpace(w.Usage.Source) != "" {
+				usage["source"] = w.Usage.Source
+			}
+			if !w.Usage.CollectedAt.IsZero() {
+				usage["collectedAt"] = w.Usage.CollectedAt.UTC().Format(time.RFC3339)
+			}
+			item["usage"] = usage
+		}
 		if strings.TrimSpace(w.Message) != "" {
 			item["message"] = w.Message
 		}

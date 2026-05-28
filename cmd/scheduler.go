@@ -276,12 +276,13 @@ func parseAgentContainerSpecForScheduler(body []byte) (*controlv1.WorkloadSpec, 
 		},
 		Metadata: container.GetLabels(),
 		Workload: &controlv1.WorkloadSpec_Container{Container: &controlv1.ContainerSpec{
-			Image:         container.GetImage(),
-			Command:       append(append([]string{}, container.GetCommand()...), container.GetArgs()...),
-			Env:           container.GetEnv(),
-			Volumes:       toControlVolumes(container.GetVolumes()),
-			Ports:         toControlPorts(container.GetPorts()),
-			RestartPolicy: container.GetRestartPolicy().GetPolicy(),
+			Image:          container.GetImage(),
+			Command:        append(append([]string{}, container.GetCommand()...), container.GetArgs()...),
+			Env:            container.GetEnv(),
+			Volumes:        toControlVolumes(container.GetVolumes()),
+			ManagedVolumes: toControlManagedVolumes(container.GetManagedVolumes()),
+			Ports:          toControlPorts(container.GetPorts()),
+			RestartPolicy:  container.GetRestartPolicy().GetPolicy(),
 		}},
 	}, nil
 }
@@ -356,7 +357,11 @@ func parseAgentVMSpecForScheduler(body []byte) (*controlv1.WorkloadSpec, error) 
 			UserData:      vm.GetCloudInitConfig().GetUserData(),
 			MetaData:      vm.GetCloudInitConfig().GetMetaData(),
 			NetworkConfig: vm.GetCloudInitConfig().GetNetworkConfig(),
+			VendorData:    vm.GetCloudInitConfig().GetVendorData(),
 		}
+	} else if strings.TrimSpace(vm.GetCloudInit()) != "" {
+		// Backward compatibility for legacy VM specs that still use single cloud_init string.
+		cloudInit.UserData = vm.GetCloudInit()
 	}
 
 	return &controlv1.WorkloadSpec{
@@ -367,12 +372,13 @@ func parseAgentVMSpecForScheduler(body []byte) (*controlv1.WorkloadSpec, error) 
 		},
 		Metadata: metadata,
 		Workload: &controlv1.WorkloadSpec_Vm{Vm: &controlv1.VMSpec{
-			Vcpus:    vm.GetVcpus(),
-			MemoryMb: vm.GetMemoryMb(),
-			OsImage:  vm.GetName(),
-			Disks:    toControlDisks(vm.GetDisks()),
-			Networks: toControlNetworks(vm.GetNetworks()),
-			CloudInit: cloudInit,
+			Vcpus:          vm.GetVcpus(),
+			MemoryMb:       vm.GetMemoryMb(),
+			OsImage:        vm.GetName(),
+			Disks:          toControlDisks(vm.GetDisks()),
+			Networks:       toControlNetworks(vm.GetNetworks()),
+			CloudInit:      cloudInit,
+			ManagedVolumes: toControlManagedVolumes(vm.GetManagedVolumes()),
 		}},
 	}, nil
 }
@@ -381,6 +387,23 @@ func toControlVolumes(in []*agentv1.VolumeMount) []*controlv1.VolumeMount {
 	out := make([]*controlv1.VolumeMount, 0, len(in))
 	for _, v := range in {
 		out = append(out, &controlv1.VolumeMount{HostPath: v.GetHostPath(), ContainerPath: v.GetContainerPath(), ReadOnly: v.GetReadOnly()})
+	}
+	return out
+}
+
+func toControlManagedVolumes(in []*agentv1.ManagedVolumeSpec) []*controlv1.ManagedVolumeSpec {
+	out := make([]*controlv1.ManagedVolumeSpec, 0, len(in))
+	for _, mv := range in {
+		out = append(out, &controlv1.ManagedVolumeSpec{
+			Name:         mv.GetName(),
+			Driver:       mv.GetDriver(),
+			SizeGb:       mv.GetSizeGb(),
+			AccessMode:   mv.GetAccessMode(),
+			FsType:       mv.GetFsType(),
+			MountPath:    mv.GetMountPath(),
+			ReadOnly:     mv.GetReadOnly(),
+			RetainPolicy: mv.GetRetainPolicy(),
+		})
 	}
 	return out
 }
