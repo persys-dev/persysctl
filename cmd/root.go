@@ -31,7 +31,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.persys/config.yaml)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose logging")
 
-	rootCmd.PersistentFlags().String("transport", "", "transport to use: http or grpc")
+	rootCmd.PersistentFlags().String("transport", "http", "transport to use: http or grpc")
 	rootCmd.PersistentFlags().String("grpc-endpoint", "", "gRPC endpoint, e.g. localhost:8085")
 	rootCmd.PersistentFlags().Bool("grpc-insecure", false, "use insecure gRPC transport (no TLS)")
 	rootCmd.PersistentFlags().String("grpc-target", "", "gRPC target service: scheduler or agent")

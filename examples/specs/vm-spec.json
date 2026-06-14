@@ -4,19 +4,11 @@
   "memory_mb": 2048,
   "disks": [
     {
-      "path": "/home/milx/Persys-VMs/persys-vm.qcow2",
+      "path": "/var/lib/libvirt/iso/base.img",
       "device": "vda",
       "format": "qcow2",
-      "size_gb": 15,
+      "size_gb": 5,
       "type": "disk",
-      "boot": true
-    },
-    {
-      "path": "/var/lib/libvirt/iso/ubuntu-24.04.2-live-server-amd64.iso",
-      "device": "hdc",
-      "format": "raw",
-      "size_gb": 0,
-      "type": "cdrom",
       "boot": true
     }
   ],
@@ -27,7 +19,7 @@
       "ip_address": ""
     }
   ],
-  "cloud_init": "#cloud-config\nhostname: persys-vm\nmanage_etc_hosts: true\nusers:\n  - name: core\n    groups: [wheel]\n    sudo: [\"ALL=(ALL) NOPASSWD:ALL\"]\npackages:\n  - qemu-guest-agent\nruncmd:\n  - systemctl enable --now qemu-guest-agent\n  - echo \"cloud-init done\" > /tmp/cloud-init.done\n",
+  "cloud_init": "#cloud-config\nhostname: persys-vm\nmanage_etc_hosts: true\nusers:\n  - name: ubuntu\n    groups: [wheel]\n    sudo: [\"ALL=(ALL) NOPASSWD:ALL\"]\npackages:\n  - qemu-guest-agent\nruncmd:\n  - systemctl enable --now qemu-guest-agent\n  - echo \"cloud-init done\" > /tmp/cloud-init.done\n",
   "metadata": {
     "environment": "staging",
     "owner": "platform-team",
@@ -35,10 +27,9 @@
     "managed-by": "persys-test-client"
   },
   "cloud_init_config": {
-    "user_data": "#cloud-config\nhostname: demo-vm-alt\nusers:\n  - name: core\n",
-    "meta_data": "{\"instance-id\":\"demo-vm-instance\",\"local-hostname\":\"demo-vm\"}",
-    "network_config": "version: 2\nethernets:\n  eth0:\n    dhcp4: true\n",
-    "vendor_data": "#cloud-config\nwrite_files:\n  - path: /etc/motd\n    content: |\n      Managed by Persys\n"
+    "user_data": "#cloud-config\nhostname: persys-genesis\nusers:\n  - name: ubuntu\n    sudo: ALL=(ALL) NOPASSWD:ALL\n    groups: sudo\n    lock_passwd: false\n    plain_text_passwd: ubuntu\n\nssh_pwauth: true\n",
+    "meta_data": "{\"instance-id\":\"persys-vm-instance\",\"local-hostname\":\"persys-genesis\"}",
+    "network_config": "version: 2\nethernets:\n  enp1s0:\n    dhcp4: true\n"
   }
 }
 

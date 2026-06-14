@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	agentv1 "github.com/persys/compute-agent/pkg/api/v1"
+	agentv1 "github.com/persys-dev/persys-cloud/pkg/agent/api/v1"
 	"github.com/spf13/cobra"
 )
 

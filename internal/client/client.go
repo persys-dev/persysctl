@@ -20,9 +20,9 @@ import (
 
 	"github.com/persys-dev/persysctl/internal/auth"
 	"github.com/persys-dev/persysctl/internal/config"
-	controlv1 "github.com/persys-dev/persysctl/internal/controlv1"
+	controlv1 "github.com/persys-dev/persys-cloud/pkg/scheduler/controlv1"
 	"github.com/persys-dev/persysctl/internal/models"
-	agentv1 "github.com/persys/compute-agent/pkg/api/v1"
+	agentv1 "github.com/persys-dev/persys-cloud/pkg/agent/api/v1"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
