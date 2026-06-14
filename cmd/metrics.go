@@ -9,8 +9,8 @@ import (
 
 var metricsCmd = &cobra.Command{
 	Use:   "metrics",
-	Short: "View Prow metrics",
-	Long:  `Retrieves node and workload metrics from Prow.`,
+	Short: "View Persys Compute metrics",
+	Long:  `Retrieves node and workload metrics from Persys Compute.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		c, _, err := newClientWithTrace()
 		cobra.CheckErr(err)
