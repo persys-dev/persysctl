@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	controlv1 "github.com/persys-dev/persysctl/internal/controlv1"
-	agentv1 "github.com/persys/compute-agent/pkg/api/v1"
+	controlv1 "github.com/persys-dev/persys-cloud/pkg/scheduler/controlv1"
+	agentv1 "github.com/persys-dev/persys-cloud/pkg/agent/api/v1"
 	"github.com/spf13/cobra"
 )
 
