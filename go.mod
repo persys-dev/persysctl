@@ -3,6 +3,7 @@ module github.com/persys-dev/persysctl
 go 1.24.13
 
 require (
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/hashicorp/vault/api v1.22.0
 	github.com/persys-dev/persys-cloud/pkg v0.0.0-20260601145500-2067dfcde332
 	github.com/sirupsen/logrus v1.9.4
@@ -10,11 +11,11 @@ require (
 	github.com/spf13/viper v1.21.0
 	google.golang.org/grpc v1.79.1
 	google.golang.org/protobuf v1.36.11
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
